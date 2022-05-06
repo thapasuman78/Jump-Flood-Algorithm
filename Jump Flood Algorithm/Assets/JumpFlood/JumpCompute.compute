@@ -1,0 +1,141 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel SetSeed
+#pragma kernel JumpFlood
+#pragma kernel SetColor
+#pragma kernel DistanceTransform
+
+Texture2D<float4> InputTexture;
+
+RWTexture2D<float4> SeedColorTexture;
+
+RWTexture2D<float4> SeedTexture;
+RWTexture2D<float4> Result;
+
+int resolution;
+int _step;
+
+float _Remap(float value)
+{
+	return value * (1 / (float)(resolution - 1));
+}
+
+float remap(float value, float2 input, float2 output)
+{
+	return output.x + (value - input.x) * (output.y - output.x) / (input.y - input.x);
+}
+
+[numthreads(32, 32, 1)]
+void SetSeed(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= resolution || id.y >= resolution)
+		return;
+
+	if (InputTexture[id.xy].r > 0)
+	{
+		SeedTexture[id.xy] = float4(id.xy, 0, 0);
+		SeedColorTexture[id.xy] = float4(_Remap(id.x), _Remap(id.y), 0,0);
+		return;
+	}
+
+	//if (id.x == 0 && id.y == 0)
+	//{
+	//	SeedTexture[id.xy] = float4(id.xy, 0, 0);
+	//	SeedColorTexture[id.xy] = float4(1, 0, 0, 0);
+	//	return;
+	//}
+
+	//if (id.x == resolution - 1 && id.y == 0)
+	//{
+	//	SeedTexture[id.xy] = float4(id.xy, 0, 0);
+	//	SeedColorTexture[id.xy] = float4(0, 1, 0, 0);
+	//	return;
+	//}
+
+	//if (id.x == 0 && id.y == resolution - 1)
+	//{
+	//	SeedTexture[id.xy] = float4(id.xy, 0, 0);
+	//	SeedColorTexture[id.xy] = float4(0, 0, 1, 0);
+	//	return;
+	//}
+
+	//if (id.x == resolution - 1 && id.y == resolution - 1)
+	//{
+	//	SeedTexture[id.xy] = float4(id.xy, 0, 0);
+	//	SeedColorTexture[id.xy] = float4(1, 0.92, 0.016, 0);
+	//	return;
+	//}
+
+	SeedTexture[id.xy] = -1;
+}
+
+[numthreads(32, 32, 1)]
+void JumpFlood(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= resolution || id.y >= resolution)
+		return;
+
+	float4 currentPixel = SeedTexture[id.xy];
+	Result[id.xy] = -1;
+
+	if (currentPixel.x < 0)
+		return;
+
+	Result[id.xy] = currentPixel;
+
+	for (int y = -1; y <= 1; y++)
+	{
+		for (int x = -1; x <= 1; x++)
+		{
+			float2 neighborPos = float2(id.x + x * _step, id.y + y * _step);
+
+			if (neighborPos.x < 0 || neighborPos.y < 0 || neighborPos.x >= resolution || neighborPos.y >= resolution || (x == 0 && y == 0))
+				continue;
+
+			float4 neighborPixel = SeedTexture[neighborPos];
+
+			if (neighborPixel.x < 0)
+			{
+				SeedTexture[neighborPos] = currentPixel;
+				Result[neighborPos] = currentPixel;
+			}
+			else
+			{
+				float distNtoNs = distance(neighborPos, neighborPixel.xy);
+				float distNtoCs = distance(neighborPos, currentPixel.xy);
+
+				if (distNtoCs <= distNtoNs)
+				{
+					SeedTexture[neighborPos] = currentPixel;
+					Result[neighborPos] = currentPixel;
+				}
+			}
+		}
+	}
+}
+
+[numthreads(32, 32, 1)]
+void SetColor(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= resolution || id.y >= resolution)
+		return;
+
+	float4 toColorPixel = SeedTexture[id.xy];
+
+	Result[id.xy] = toColorPixel.x < 0 ? 0 : SeedColorTexture[toColorPixel.xy];
+}
+
+[numthreads(32, 32, 1)]
+void DistanceTransform(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= resolution || id.y >= resolution)
+		return;
+
+	float4 seedPos = SeedTexture[id.xy];
+
+	float value = (distance(id.xy, seedPos.xy) / (resolution));
+
+	Result[id.xy] = smoothstep(0, 0.2, value);
+	//Result[id.xy] = value < 0.3 ? 1 : 0;
+}
+
+
